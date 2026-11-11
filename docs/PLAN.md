@@ -102,12 +102,18 @@ struct GeneratorDef {
     key: &'static str,          // "person.firstName"
     category: &'static str,     // "Person"
     label: &'static str,        // "First name"
-    params: &'static [ParamDef],// e.g. min/max for number.int
-    generate: fn(&Params, &mut dyn RngCore) -> serde_json::Value,
+    output: ValueKind,          // String | Integer | Number | Boolean | Null
+    params: &'static [ParamDef],// e.g. min/max for number.int, with defaults and bounds
+    check: Option<ParamCheck>,  // cross-parameter rule, e.g. min <= max
+    generate: fn(&Params, &mut GenContext) -> serde_json::Value,
 }
 ```
 
 Keys are stored in the database, so they are a public contract: once shipped, a key is never renamed, only deprecated. The generator returns a typed JSON value, so `number.int` produces a JSON number and `datatype.boolean` a JSON boolean rather than strings.
+
+The registry exposes `catalog()` (picker order), `lookup(key)` and `categories()` (grouped for the picker), plus `validate(&GeneratorRef)` and `generate(&GeneratorRef, &mut GenContext)`. An unknown key is an explicit `GeneratorError::UnknownKey`. Parameters are a JSON object: missing or `null` parameters take their defaults, unknown ones are ignored (so endpoints saved by a newer version still load), and wrong types, out-of-range values and broken cross-parameter rules are `GeneratorError::InvalidParam { key, param, reason }`, which the UI can show next to the parameter.
+
+`GenContext` holds a seedable `StdRng` and the reference time that `date.past` and `date.future` count from. `GenContext::new()` seeds from the OS; `GenContext::seeded(seed).at(time)` is fully deterministic, which is what the tests use.
 
 The initial catalog (backed by the `fake` crate) covers:
 
@@ -117,23 +123,26 @@ The initial catalog (backed by the `fake` crate) covers:
 - **Location**: street, city, zipCode, state, country, countryCode, latitude, longitude
 - **Company**: name, buzzword, catchPhrase, industry
 - **Lorem**: word, words (count), sentence, paragraph
-- **Number / Datatype**: int (min/max), float (min/max/decimals), boolean, uuid
-- **Date**: past, future, between (ISO-8601 output)
-- **Finance**: creditCardNumber, currencyCode, amount
-- **Static**: fixed string, number, boolean, or null
+- **Number**: int (min/max), float (min/max/decimals)
+- **Datatype**: boolean, uuid
+- **Date**: past (years), future (years), between (from/to) — ISO-8601 output in UTC, e.g. `2026-03-04T05:06:07Z`
+- **Finance**: creditCardNumber, currencyCode, amount (min/max/decimals)
+- **Static**: `static.string`, `static.number`, `static.boolean` (each with a `value` parameter) and `static.null`
 
-Locale is a single app-wide setting in v1 (default `en`), wired through so that per-field locales can be added later without a schema change.
+Locale is fixed to `en` in v1. A locale can later be added to `GenContext` (app-wide) or to the params (per field) without a schema change.
 
 ### 3.3 Body builder and runner
 
-`build_body(&[Field], rng) -> serde_json::Value` turns the enabled fields into a JSON object, generating a fresh value per field. Field names containing dots (`address.city`) are expanded into nested objects. There are no arrays.
+`build_body(&[Field], BodyFormat, &mut GenContext) -> Result<serde_json::Value, BodyError>` turns the enabled fields into a JSON object in field order, generating a fresh value per field. Disabled fields are skipped entirely. In JSON format, field names containing dots (`address.city`) are expanded into nested objects; in form format they stay literal keys, so the same value doubles as the payload shown in the preview and run log. There are no arrays.
 
-The body is then encoded according to the endpoint's `body_format`:
+`check_names` (also run by `build_body`) rejects empty names, duplicate names, and in JSON format empty dot segments (`a..b`) and a name that is also the parent of another (`a` and `a.b`), so the UI can flag them without generating.
+
+The body is then encoded by `encode_body(&Value, BodyFormat)` according to the endpoint's `body_format`:
 
 - **JSON**: serialised with `serde_json` and sent with `Content-Type: application/json`. Values keep their JSON types.
 - **Form-urlencoded**: sent with `Content-Type: application/x-www-form-urlencoded`. Names are used as written, so `address.city` stays a literal key `address.city` instead of being nested. Values are converted to strings: numbers and booleans by their JSON text, and null as an empty string.
 
-A user-defined `Content-Type` header overrides the default, which keeps an escape hatch for APIs that are picky about it.
+A user-defined `Content-Type` header overrides the default, which keeps an escape hatch for APIs that are picky about it. `content_type(&[Header], BodyFormat)` picks the first enabled, non-empty `Content-Type` header (case-insensitive) and otherwise the format's default.
 
 The runner executes a `RunRequest` (a snapshot of the endpoint at the moment Send is pressed, so edits during a run do not affect it) on the tokio runtime:
 
@@ -231,7 +240,7 @@ Each phase lists its deliverable and how it is verified.
 
 - Domain types from 3.1, with `serde` derives.
 - Generator registry from 3.2 with the initial catalog, parameter definitions, and validation (for example `min <= max`).
-- `build_body` with dotted-name nesting, enabled flags, and duplicate-name detection, plus the JSON and form-urlencoded encoders.
+- `build_body` with dotted-name nesting, enabled flags, and duplicate and conflicting-name detection (`a` and `a.b`), plus the JSON and form-urlencoded encoders and the `Content-Type` choice.
 - Seedable RNG so tests are deterministic.
 
 **Done when** unit tests show that every catalog key generates a value of the declared JSON type, that the same seed gives the same body, that two unseeded builds differ, that nested names produce nested objects in JSON, and that form encoding produces flat, correctly escaped `key=value` pairs.
