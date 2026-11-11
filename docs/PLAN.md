@@ -187,9 +187,20 @@ CREATE TABLE headers (
   value       TEXT NOT NULL,
   enabled     INTEGER NOT NULL DEFAULT 1
 );
+
+CREATE INDEX fields_endpoint ON fields (endpoint_id, position);
+CREATE INDEX headers_endpoint ON headers (endpoint_id, position);
 ```
 
-Saving an endpoint is one transaction that updates the row and replaces its fields and headers. The store exposes a small repository API (`list_endpoints`, `get_endpoint`, `create`, `save`, `duplicate`, `delete`, `reorder`). A `runs`/`run_requests` history table is deliberately left to a later phase.
+The schema lives in `crates/fakeman-store/migrations/` as numbered SQL files applied by `rusqlite_migration` (tracked in `PRAGMA user_version`); shipped migrations are never edited, only appended to. Every connection turns on `foreign_keys`, and file databases use WAL.
+
+The store does not depend on `fakeman-core`. It works with its own plain records: `EndpointRecord` (name, method, url, a store-local `BodyFormat` enum stored as `json`/`form`, `run_count`, `delay_ms`, `sort_order`, timestamps, fields and headers), `FieldRecord` (name, `generator_key` as a plain `String`, `params` as `serde_json::Value`, enabled) and `HeaderRecord`. Mapping between these records and the core domain types happens in the app (Phase 4), which is also where an unknown generator key is detected. Timestamps are ISO-8601 UTC strings written by SQLite.
+
+Saving an endpoint is one transaction that updates the row and replaces its fields and headers; `sort_order` and `created_at` are not touched by a save. The store exposes a small repository API on `Store`: `list_endpoints` (sidebar summaries by `sort_order`), `get_endpoint` (with fields and headers in position order), `create` (defaults, appended at the end), `save`, `rename`, `duplicate` (deep copy named "<name> copy", placed right after the original), `delete` (fields and headers cascade) and `reorder` (takes every endpoint id exactly once). `Store::open_default` opens the file in the OS data directory, `Store::open(path)` opens any path, and `Store::open_in_memory` gives an empty database for tests.
+
+On first launch, meaning the database file had no schema yet, the store seeds one sample endpoint: "Create user", `POST https://httpbin.org/post`, JSON, with `firstname = person.firstName`, `lastname = person.lastName` and `email = internet.email`. It is never re-seeded, so a user who deletes every endpoint keeps an empty list. In-memory databases are not seeded.
+
+A `runs`/`run_requests` history table is deliberately left to a later phase.
 
 An unknown `generator_key` loaded from the database (for example from a newer version) is shown in the UI as "Unknown generator" rather than failing the load.
 
@@ -249,9 +260,9 @@ Each phase lists its deliverable and how it is verified.
 
 - Schema and migrations from 3.4, DB file in the OS data directory, foreign keys and WAL enabled.
 - Repository API with transactional save.
-- Seed a sample endpoint on first launch so the app is never empty.
+- Seed a sample endpoint on first launch so a new install is not empty.
 
-**Done when** round-trip tests on an in-memory database (create, save with fields and headers, reorder, duplicate, delete with cascade) pass, and a migration test opens a v1 database with the current code.
+**Done when** round-trip tests on in-memory or temp-file databases (create, save with fields and headers, reorder, duplicate, delete with cascade, seed once) pass, and a migration test opens a v1 database with the current code.
 
 ### Phase 3 — HTTP runner
 
