@@ -1,0 +1,18 @@
+{
+  "id": 1,
+  "name": "Create user",
+  "method": "POST",
+  "url": "https://httpbin.org/post",
+  "body_format": "json",
+  "headers": [
+    { "key": "X-Fakeman", "value": "example", "enabled": true }
+  ],
+  "fields": [
+    { "name": "firstname", "generator": { "key": "person.firstName" }, "enabled": true },
+    { "name": "lastname", "generator": { "key": "person.lastName" }, "enabled": true },
+    { "name": "email", "generator": { "key": "internet.email" }, "enabled": true },
+    { "name": "address.city", "generator": { "key": "location.city" }, "enabled": true },
+    { "name": "age", "generator": { "key": "number.int", "params": { "min": 18, "max": 90 } }, "enabled": true }
+  ],
+  "run": { "count": 2, "delay_ms": 500 }
+}
