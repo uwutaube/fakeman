@@ -4,6 +4,13 @@ on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Also run the macOS job
+        type: boolean
+        default: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -13,20 +20,17 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  check:
-    name: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo fmt --all --check
-      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
-      - run: cargo test --workspace --locked
-      - run: cargo build -p fakeman-app --locked
+  windows:
+    uses: ./.github/workflows/check.yml
+    with:
+      os: windows-latest
+
+  # macOS is opt-in; see "Enabling macOS" in README.md.
+  macos:
+    if: >-
+      vars.ENABLE_MACOS == 'true' ||
+      (github.event_name == 'workflow_dispatch' && inputs.macos) ||
+      (github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'macos'))
+    uses: ./.github/workflows/check.yml
+    with:
+      os: macos-latest
