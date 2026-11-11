@@ -1,11 +1,16 @@
-//! Domain model, generator catalog, body builder and runner. Filled in from Phase 1.
+//! Domain model, generator catalog and body builder for fakeman.
 
-pub const NAME: &str = "fakeman-core";
+pub mod body;
+pub mod generators;
+pub mod model;
+pub mod rng;
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn crate_name() {
-        assert_eq!(super::NAME, env!("CARGO_PKG_NAME"));
-    }
-}
+pub use body::{BodyError, EncodeError, build_body, check_names, content_type, encode_body};
+pub use generators::{
+    Category, GeneratorDef, GeneratorError, ParamDef, ParamKind, Params, ValueKind, catalog,
+    categories, generate, lookup, validate,
+};
+pub use model::{
+    BodyFormat, Endpoint, EndpointId, Field, GeneratorRef, Header, Method, RunSettings,
+};
+pub use rng::GenContext;
