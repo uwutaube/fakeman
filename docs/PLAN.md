@@ -33,7 +33,7 @@ This document describes the target architecture and the phases to build it in. E
 | --- | --- | --- |
 | Language | Rust (stable, edition 2024) | Requirement. |
 | GUI | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) | Requirement. GPUI is not published as a stable crate; it comes in through gpui-kit as the `gpui-pre` snapshot that gpui-kit pins, so fakeman pins gpui-kit to a git revision and never depends on GPUI directly. |
-| Components | [gpui-kit](https://github.com/longbridge/gpui-kit) (formerly gpui-component) | Provides input, select/dropdown, table, tabs, resizable panels, sidebar, theming, and a code editor/viewer for JSON. It pins its own GPUI revision, so fakeman uses **the GPUI revision gpui-kit pins** rather than choosing one independently. |
+| Components | [gpui-kit](https://github.com/longbridge/gpui-kit) (formerly gpui-component) | Used for interaction primitives: text input (and later the JSON editor/viewer), checkbox, radio, select/dropdown, resizable panels, the window title bar, and toasts. Layout and visual styling are fakeman's own, built from plain GPUI elements and a Postman-style design-tokens module (`fakeman-app/src/theme.rs`) that also restyles gpui-kit's primitives. gpui-kit pins its own GPUI revision, so fakeman uses **the GPUI revision gpui-kit pins** rather than choosing one independently. |
 | Fake data | [`fake`](https://crates.io/crates/fake) 5.x | The established Rust port of the Faker idea, with names, addresses, internet, company, lorem, phone, dates, UUIDs, and locales. |
 | HTTP | `reqwest` (rustls, json) on a dedicated `tokio` runtime | Mature and async. GPUI has its own executor, so HTTP runs on a tokio runtime owned by the core and results are streamed back to the UI over a channel. |
 | Database | `rusqlite` with the `bundled` feature, `rusqlite_migration` for schema versions | No system SQLite needed on Windows; migrations are plain SQL kept in the repo. |
@@ -212,7 +212,7 @@ Layout, mirroring Postman:
 - **Response panel** (resizable split): for a single send, status, time, size, headers, and the pretty-printed body. For a batch, a progress bar, a summary (succeeded / failed / average latency), and a run log table; selecting a row shows that request's generated payload and response.
 - **State**: an `AppState` entity holds the endpoint list and the selected endpoint's editable draft. Edits are saved to SQLite automatically after a short debounce (about 500 ms) and when switching endpoints or closing the window, so there is no Save button and no unsaved state.
 - **Keyboard**: Ctrl+Enter send, Ctrl+N new endpoint, Ctrl+D duplicate, Esc cancel run. On macOS, Cmd replaces Ctrl.
-- Light and dark themes come from gpui-kit.
+- The look follows Postman's dark theme (neutral greys, #FF6C37 brand accent, blue Send, coloured method tags, 1px dividers, small radii). All colours, font sizes, spacing, dimensions and method colours live in `fakeman-app/src/theme.rs`; views never hard-code styles. A light variant is a second token set, not a separate code path.
 
 ## 4. Phases
 
@@ -301,6 +301,7 @@ Each phase lists its deliverable and how it is verified.
 
 - **GPUI stability.** GPUI has no stable API and changes with Zed. Pinning to gpui-kit's revision and upgrading both together, deliberately, keeps this contained. Phase 0 exists to find Windows build issues early.
 - **gpui-kit coverage.** If a needed widget is missing (for example a drag-reorderable table), a simpler fallback is used first: up/down buttons instead of drag.
+- **Styling against gpui-kit.** gpui-kit primitives carry their own look; fakeman overrides their colours, font size and radius from the design tokens at startup. If a primitive cannot be made to match Postman this way, it is replaced with a plain GPUI element styled from the tokens, rather than forking gpui-kit. Text input stays on gpui-kit because a raw GPUI text field is a large amount of work.
 - **Async bridging.** Mixing GPUI's executor with tokio is the most likely source of subtle bugs; keeping all networking behind the runner's event channel limits the surface to one place.
 - **macOS without a Mac.** Development happens on Windows, so macOS problems show up only in CI until the app is run on a real Mac. Window chrome, Cmd shortcuts, and font rendering should be checked by hand before a release.
 - **Catalog keys as contract.** Renaming a key breaks saved endpoints, hence the never-rename rule and the "Unknown generator" fallback.
