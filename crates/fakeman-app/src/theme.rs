@@ -40,7 +40,6 @@ pub mod corner {
 pub mod dim {
     use gpui_kit::{Pixels, px};
 
-    pub const RAIL_WIDTH: Pixels = px(80.);
     pub const SIDEBAR_WIDTH: Pixels = px(280.);
     pub const SIDEBAR_MIN: Pixels = px(200.);
     pub const SIDEBAR_MAX: Pixels = px(480.);

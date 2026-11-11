@@ -11,6 +11,7 @@ use gpui_kit::component::{
     notification::Notification,
     radio::Radio,
     resizable::{h_resizable, resizable_panel, v_resizable},
+    tooltip::Tooltip,
     v_flex,
 };
 use gpui_kit::prelude::FluentBuilder as _;
@@ -72,12 +73,19 @@ enum BodyFormat {
     RawJson,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SidebarView {
+    Collections,
+    History,
+}
+
 struct FakemanWindow {
     url: Entity<InputState>,
     selected: usize,
     open_tabs: Vec<usize>,
     request_tab: RequestTab,
     body_format: BodyFormat,
+    sidebar_view: SidebarView,
     field_enabled: [bool; FIELDS.len()],
 }
 
@@ -94,6 +102,7 @@ impl FakemanWindow {
             open_tabs: vec![0, 1],
             request_tab: RequestTab::Body,
             body_format: BodyFormat::RawJson,
+            sidebar_view: SidebarView::Collections,
             field_enabled: [true, true, true, false],
         }
     }
@@ -196,32 +205,75 @@ impl FakemanWindow {
         )
     }
 
-    fn rail(&self, t: &Tokens) -> impl IntoElement {
-        let item = |icon: &'static str, label: &'static str, active: bool| {
-            v_flex()
-                .w(dim::RAIL_WIDTH - spacing::MD)
-                .py(spacing::SM)
-                .gap(spacing::XS)
+    fn sidebar_switcher(&self, t: &Tokens, cx: &mut Context<Self>) -> impl IntoElement {
+        let item = |view: SidebarView, icon: &'static str, label: &'static str| {
+            let active = self.sidebar_view == view;
+            div()
+                .id(label)
+                .size(dim::CONTROL_HEIGHT)
+                .flex()
                 .items_center()
+                .justify_center()
                 .rounded(corner::SM)
-                .text_size(font_size::XS)
+                .cursor_pointer()
                 .text_color(if active { t.text } else { t.text_muted })
-                .when(active, |this| this.bg(t.bg_selected))
+                .map(|this| {
+                    if active {
+                        this.bg(t.bg_selected)
+                    } else {
+                        this.hover(|s| s.bg(t.bg_hover))
+                    }
+                })
+                .tooltip(move |window, cx| Tooltip::new(label).build(window, cx))
+                .on_click(cx.listener(move |this, _, _, cx| {
+                    this.sidebar_view = view;
+                    cx.notify();
+                }))
                 .child(Icon::default().path(icon).size(dim::ICON_MD))
-                .child(label)
         };
 
-        v_flex()
-            .w(dim::RAIL_WIDTH)
-            .h_full()
-            .py(spacing::MD)
+        h_flex()
+            .h(dim::BAR_HEIGHT)
+            .flex_none()
+            .px(spacing::MD)
             .gap(spacing::XS)
             .items_center()
-            .bg(t.bg_sidebar)
-            .border_r_1()
+            .border_b_1()
             .border_color(t.border)
-            .child(item("icons/box.svg", "Collections", true))
-            .child(item("icons/clock.svg", "History", false))
+            .child(item(
+                SidebarView::Collections,
+                "icons/box.svg",
+                "Collections",
+            ))
+            .child(item(SidebarView::History, "icons/clock.svg", "History"))
+    }
+
+    fn history(&self, t: &Tokens) -> impl IntoElement {
+        let row = |request: &SavedRequest| {
+            h_flex()
+                .h(dim::TREE_ROW_HEIGHT)
+                .px(spacing::LG)
+                .gap(spacing::SM)
+                .items_center()
+                .text_size(font_size::BASE)
+                .text_color(t.text_muted)
+                .hover(|s| s.bg(t.bg_hover))
+                .child(Self::method_tag(t, request.method))
+                .child(div().truncate().child(request.url))
+        };
+        v_flex()
+            .py(spacing::XS)
+            .child(
+                div()
+                    .h(dim::TREE_ROW_HEIGHT)
+                    .px(spacing::LG)
+                    .flex()
+                    .items_center()
+                    .text_size(font_size::SM)
+                    .text_color(t.text_subtle)
+                    .child("Today"),
+            )
+            .children(REQUESTS.iter().map(row))
     }
 
     fn tree_row(
@@ -327,9 +379,15 @@ impl FakemanWindow {
             false,
         ));
 
+        let (search_label, content) = match self.sidebar_view {
+            SidebarView::Collections => ("Search collections", tree.into_any_element()),
+            SidebarView::History => ("Search history", self.history(t).into_any_element()),
+        };
+
         v_flex()
             .size_full()
             .bg(t.bg_sidebar)
+            .child(self.sidebar_switcher(t, cx))
             .child(
                 h_flex()
                     .h(dim::BAR_HEIGHT)
@@ -373,11 +431,11 @@ impl FakemanWindow {
                             .text_size(font_size::SM)
                             .text_color(t.text_subtle)
                             .child(Icon::new(IconName::Search).size(dim::ICON_SM))
-                            .child("Search collections"),
+                            .child(search_label),
                     )
                     .child(Icon::new(IconName::Ellipsis).size(dim::ICON_MD)),
             )
-            .child(tree)
+            .child(content)
     }
 
     fn small_button(t: &Tokens, label: &'static str) -> impl IntoElement {
@@ -980,7 +1038,7 @@ impl Render for FakemanWindow {
             .text_color(t.text)
             .child(self.header(&t))
             .child(
-                h_flex().flex_1().min_h_0().child(self.rail(&t)).child(
+                h_flex().flex_1().min_h_0().child(
                     div().flex_1().min_w_0().h_full().child(
                         h_resizable("sidebar-workbench")
                             .child(
