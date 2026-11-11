@@ -233,13 +233,13 @@ Layout, mirroring Postman:
 └──────────────┴──────────────────────────────────────────────────┘
 ```
 
-- **Sidebar**: endpoint list with selection, context menu (rename, duplicate, delete), "+" to create, filter input.
+- **Sidebar**: a flat list of the saved endpoints (POST tag and name) under the Collections/History icon row, with selection, a filter input that matches name or URL, "New", "+" and Ctrl+N to create (the new endpoint opens with its name ready to type), inline rename by double-click or the context menu, duplicate by Ctrl+D or the context menu, and delete from the context menu after a confirm dialog. Opening an endpoint adds it to the tab strip; closing the active tab opens its neighbour.
 - **Request bar**: method badge (fixed to POST), URL input, Send button that turns into Cancel while a run is active.
 - **Body tab**: a JSON / Form-urlencoded segmented switch above the field table. The field table has with enable checkbox, name input, generator picker (searchable, grouped by category, shows the key `person.firstName` and a label), a live sample value with a re-roll button, parameter editor for generators that take parameters, delete, and drag-to-reorder. "Preview body" shows one fully generated body in the selected format.
 - **Headers tab**: key/value table with enable checkbox.
 - **Run tab**: "Send count" number input and "Delay between requests (ms)" input; the delay input is disabled when count is 1.
 - **Response panel** (resizable split): for a single send, status, time, size, headers, and the pretty-printed body. For a batch, a progress bar, a summary (succeeded / failed / average latency), and a run log table; selecting a row shows that request's generated payload and response.
-- **State**: an `AppState` entity holds the endpoint list and the selected endpoint's editable draft. Edits are saved to SQLite automatically after a short debounce (about 500 ms) and when switching endpoints or closing the window, so there is no Save button and no unsaved state.
+- **State**: an `AppState` entity (`fakeman-app/src/state.rs`) is loaded from the store at startup (`Store::open_default`; if the database cannot be opened, the app runs on an empty in-memory database and shows an error toast). It holds the endpoint list, the open tabs and the selected endpoint's draft as a core `Endpoint`. Records are mapped to and from core types in `fakeman-app/src/mapping.rs`; an unknown generator key loads unchanged and is shown as "Unknown generator (<key>)". Edits are saved to SQLite automatically after a short debounce (about 500 ms) and when switching endpoints, duplicating, closing a tab or closing the window, so there is no unsaved state; the Save button just saves immediately.
 - **Keyboard**: Ctrl+Enter send, Ctrl+N new endpoint, Ctrl+D duplicate, Esc cancel run. On macOS, Cmd replaces Ctrl.
 - The look follows Postman's dark theme (neutral greys, #FF6C37 brand accent, blue Send, coloured method tags, 1px dividers, small radii). All colours, font sizes, spacing, dimensions and method colours live in `fakeman-app/src/theme.rs`; views never hard-code styles. A light variant is a second token set, not a separate code path.
 
@@ -283,9 +283,9 @@ Each phase lists its deliverable and how it is verified.
 
 ### Phase 4 — App shell and endpoint sidebar
 
-- `AppState` entity loaded from the store.
-- Sidebar: list, select, create, rename, duplicate, delete (with confirm), filter.
-- Main area: request bar with URL input bound to the selected endpoint, autosave.
+- `AppState` entity loaded from the store at startup, with the store-to-core mapping (and the "Unknown generator" fallback) in the app.
+- Sidebar: flat list, select, create, rename, duplicate, delete (with confirm), filter, plus Ctrl+N and Ctrl+D.
+- Main area: tab strip, breadcrumb and URL input bound to the selected endpoint, with autosave. The Body, Headers and Run tabs show the selected endpoint read-only until Phase 5.
 
 **Done when** endpoints created in the UI survive an app restart and switching endpoints shows each one's URL.
 
