@@ -1,0 +1,33 @@
+name: CI
+
+# Manual-only during development; see "CI" in README.md. To run CI automatically
+# again, add back:
+#   push:
+#     branches: [main]
+#   pull_request:
+on:
+  workflow_dispatch:
+    inputs:
+      macos:
+        description: Also run the macOS job
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows:
+    uses: ./.github/workflows/check.yml
+    with:
+      os: windows-latest
+
+  macos:
+    if: vars.ENABLE_MACOS == 'true' || inputs.macos
+    uses: ./.github/workflows/check.yml
+    with:
+      os: macos-latest

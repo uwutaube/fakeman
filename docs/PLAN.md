@@ -25,15 +25,15 @@ This document describes the target architecture and the phases to build it in. E
 - Arrays in generated bodies.
 - Concurrent sending. Requests are always sent one at a time, which is what makes the delay meaningful.
 - Environments/variables, auth helpers, scripting, collections/folders, cloud sync.
-- Linux as a supported platform. The target platforms are Windows and macOS.
+- Linux as a supported platform. The target platform is Windows; macOS is kept buildable and can be opted into (see README, "CI"), but is not built or tested by default.
 
 ## 2. Technology choices
 
 | Concern | Choice | Why |
 | --- | --- | --- |
 | Language | Rust (stable, edition 2024) | Requirement. |
-| GUI | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) | Requirement. GPUI is not published as a stable crate, so it is pinned to a git revision. |
-| Components | [gpui-kit](https://github.com/longbridge/gpui-kit) (formerly gpui-component) | Provides input, select/dropdown, table, tabs, resizable panels, sidebar, theming, and a code editor/viewer for JSON. It pins its own GPUI revision, so fakeman uses **the GPUI revision gpui-kit pins** rather than choosing one independently. |
+| GUI | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) | Requirement. GPUI is not published as a stable crate; it comes in through gpui-kit as the `gpui-pre` snapshot that gpui-kit pins, so fakeman pins gpui-kit to a git revision and never depends on GPUI directly. |
+| Components | [gpui-kit](https://github.com/longbridge/gpui-kit) (formerly gpui-component) | Used for interaction primitives: text input (and later the JSON editor/viewer), checkbox, radio, select/dropdown, resizable panels, the window title bar, and toasts. Layout and visual styling are fakeman's own, built from plain GPUI elements and a Postman-style design-tokens module (`fakeman-app/src/theme.rs`) that also restyles gpui-kit's primitives. gpui-kit pins its own GPUI revision, so fakeman uses **the GPUI revision gpui-kit pins** rather than choosing one independently. |
 | Fake data | [`fake`](https://crates.io/crates/fake) 5.x | The established Rust port of the Faker idea, with names, addresses, internet, company, lorem, phone, dates, UUIDs, and locales. |
 | HTTP | `reqwest` (rustls, json) on a dedicated `tokio` runtime | Mature and async. GPUI has its own executor, so HTTP runs on a tokio runtime owned by the core and results are streamed back to the UI over a channel. |
 | Database | `rusqlite` with the `bundled` feature, `rusqlite_migration` for schema versions | No system SQLite needed on Windows; migrations are plain SQL kept in the repo. |
@@ -212,7 +212,7 @@ Layout, mirroring Postman:
 - **Response panel** (resizable split): for a single send, status, time, size, headers, and the pretty-printed body. For a batch, a progress bar, a summary (succeeded / failed / average latency), and a run log table; selecting a row shows that request's generated payload and response.
 - **State**: an `AppState` entity holds the endpoint list and the selected endpoint's editable draft. Edits are saved to SQLite automatically after a short debounce (about 500 ms) and when switching endpoints or closing the window, so there is no Save button and no unsaved state.
 - **Keyboard**: Ctrl+Enter send, Ctrl+N new endpoint, Ctrl+D duplicate, Esc cancel run. On macOS, Cmd replaces Ctrl.
-- Light and dark themes come from gpui-kit.
+- The look follows Postman's dark theme (neutral greys, #FF6C37 brand accent, blue Send, coloured method tags, 1px dividers, small radii). All colours, font sizes, spacing, dimensions and method colours live in `fakeman-app/src/theme.rs`; views never hard-code styles. A light variant is a second token set, not a separate code path.
 
 ## 4. Phases
 
@@ -222,10 +222,10 @@ Each phase lists its deliverable and how it is verified.
 
 - Initialise a git repository in the `fakeman` folder and a Cargo workspace with the three crates.
 - Add gpui-kit as a git dependency and use the GPUI revision it pins.
-- Build a "hello window" that opens a gpui-kit-styled window with a resizable sidebar/main split, a button, and an input, on Windows and macOS.
-- Add `rustfmt`, `clippy` (deny warnings), and a CI workflow (GitHub Actions on `windows-latest` and `macos-latest`) that runs fmt, clippy, and tests and builds the app on both.
+- Build a "hello window" that opens a gpui-kit-styled window with a resizable sidebar/main split, a button, and an input, on Windows (macOS opt-in).
+- Add `rustfmt`, `clippy` (deny warnings), and a CI workflow (GitHub Actions on `windows-latest`, with an opt-in `macos-latest` job) that runs fmt, clippy, and tests and builds the app. During development the workflow is manual-only (`workflow_dispatch`); see README, "CI".
 
-**Done when** `cargo run -p fakeman-app` opens the window on Windows, the app builds on macOS in CI, and CI is green on both. This phase exists to surface GPUI toolchain issues (MSVC and Windows SDK on Windows; Xcode and Metal on macOS) before any real UI work. Development runs on the Windows PC, so macOS is verified through CI until a Mac is available to run it on.
+**Done when** `cargo run -p fakeman-app` opens the window on Windows and `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace` and `cargo build -p fakeman-app` pass locally on the Windows PC. CI is manual during development and is not a gate; its macOS job runs only when opted in. This phase exists to surface GPUI toolchain issues (MSVC and Windows SDK on Windows) before any real UI work. The code stays cross-platform (Cmd shortcuts, macOS data directory, `cfg(target_os)` branches), so turning macOS on later needs no code changes.
 
 ### Phase 1 — Core domain and generator catalog
 
@@ -283,10 +283,10 @@ Each phase lists its deliverable and how it is verified.
 
 - Keyboard shortcuts, empty states, tooltips, light/dark theme toggle, remembered window size and split positions.
 - Import/export of endpoints as JSON (also a cheap backup mechanism).
-- App icon and release builds for both platforms via `cargo-packager`: a Windows installer (MSI or NSIS) and a macOS `.app` in a `.dmg`, built in CI.
-- macOS code signing and notarization, if you have an Apple Developer account. Without one, the app still runs after the user right-clicks Open the first time.
+- App icon and a Windows release build via `cargo-packager`: an installer (MSI or NSIS), built in CI. A macOS `.app` in a `.dmg` is deferred until macOS is opted in.
+- Once macOS is opted in: code signing and notarization, if you have an Apple Developer account. Without one, the app still runs after the user right-clicks Open the first time.
 
-**Done when** the release builds install and run on a clean Windows machine and a clean Mac.
+**Done when** the release build installs and runs on a clean Windows machine (and, if macOS is opted in, on a clean Mac).
 
 ### Later (post-v1 backlog)
 
@@ -301,8 +301,9 @@ Each phase lists its deliverable and how it is verified.
 
 - **GPUI stability.** GPUI has no stable API and changes with Zed. Pinning to gpui-kit's revision and upgrading both together, deliberately, keeps this contained. Phase 0 exists to find Windows build issues early.
 - **gpui-kit coverage.** If a needed widget is missing (for example a drag-reorderable table), a simpler fallback is used first: up/down buttons instead of drag.
+- **Styling against gpui-kit.** gpui-kit primitives carry their own look; fakeman overrides their colours, font size and radius from the design tokens at startup. If a primitive cannot be made to match Postman this way, it is replaced with a plain GPUI element styled from the tokens, rather than forking gpui-kit. Text input stays on gpui-kit because a raw GPUI text field is a large amount of work.
 - **Async bridging.** Mixing GPUI's executor with tokio is the most likely source of subtle bugs; keeping all networking behind the runner's event channel limits the surface to one place.
-- **macOS without a Mac.** Development happens on Windows, so macOS problems show up only in CI until the app is run on a real Mac. Window chrome, Cmd shortcuts, and font rendering should be checked by hand before a release.
+- **macOS not tested by default.** macOS CI is opt-in, so macOS breakage can go unnoticed until someone turns it on, and even then it only covers building, not running. Opt in before any macOS release and periodically after GPUI/gpui-kit upgrades; window chrome, Cmd shortcuts, and font rendering still need a hand check on a real Mac.
 - **Catalog keys as contract.** Renaming a key breaks saved endpoints, hence the never-rename rule and the "Unknown generator" fallback.
 
 ## 6. Decisions
@@ -314,4 +315,4 @@ These were open questions in the first draft and have been decided:
 3. **Saving**: autosave.
 4. **Methods**: POST only.
 5. **Batches**: requests are sent one at a time; there is no concurrency setting.
-6. **Platforms**: Windows and macOS.
+6. **Platforms**: Windows. macOS is opt-in: the code stays cross-platform, and its CI job runs only when enabled (see README, "CI").

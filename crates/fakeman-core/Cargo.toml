@@ -1,0 +1,10 @@
+[package]
+name = "fakeman-core"
+description = "Domain model, generator catalog, body builder and runner for fakeman."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
