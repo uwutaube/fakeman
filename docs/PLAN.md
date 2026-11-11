@@ -25,7 +25,7 @@ This document describes the target architecture and the phases to build it in. E
 - Arrays in generated bodies.
 - Concurrent sending. Requests are always sent one at a time, which is what makes the delay meaningful.
 - Environments/variables, auth helpers, scripting, collections/folders, cloud sync.
-- Linux as a supported platform. The target platform is Windows; macOS is kept buildable and can be opted into (see README, "Enabling macOS"), but is not built or tested by default.
+- Linux as a supported platform. The target platform is Windows; macOS is kept buildable and can be opted into (see README, "CI"), but is not built or tested by default.
 
 ## 2. Technology choices
 
@@ -223,9 +223,9 @@ Each phase lists its deliverable and how it is verified.
 - Initialise a git repository in the `fakeman` folder and a Cargo workspace with the three crates.
 - Add gpui-kit as a git dependency and use the GPUI revision it pins.
 - Build a "hello window" that opens a gpui-kit-styled window with a resizable sidebar/main split, a button, and an input, on Windows (macOS opt-in).
-- Add `rustfmt`, `clippy` (deny warnings), and a CI workflow (GitHub Actions on `windows-latest`, with an opt-in `macos-latest` job) that runs fmt, clippy, and tests and builds the app.
+- Add `rustfmt`, `clippy` (deny warnings), and a CI workflow (GitHub Actions on `windows-latest`, with an opt-in `macos-latest` job) that runs fmt, clippy, and tests and builds the app. During development the workflow is manual-only (`workflow_dispatch`); see README, "CI".
 
-**Done when** `cargo run -p fakeman-app` opens the window on Windows and Windows CI is green. The macOS job exists in the workflow but is skipped unless opted in. This phase exists to surface GPUI toolchain issues (MSVC and Windows SDK on Windows) before any real UI work. The code stays cross-platform (Cmd shortcuts, macOS data directory, `cfg(target_os)` branches), so turning macOS on later needs no code changes.
+**Done when** `cargo run -p fakeman-app` opens the window on Windows and `cargo fmt --check`, `cargo clippy --workspace -- -D warnings`, `cargo test --workspace` and `cargo build -p fakeman-app` pass locally on the Windows PC. CI is manual during development and is not a gate; its macOS job runs only when opted in. This phase exists to surface GPUI toolchain issues (MSVC and Windows SDK on Windows) before any real UI work. The code stays cross-platform (Cmd shortcuts, macOS data directory, `cfg(target_os)` branches), so turning macOS on later needs no code changes.
 
 ### Phase 1 — Core domain and generator catalog
 
@@ -315,4 +315,4 @@ These were open questions in the first draft and have been decided:
 3. **Saving**: autosave.
 4. **Methods**: POST only.
 5. **Batches**: requests are sent one at a time; there is no concurrency setting.
-6. **Platforms**: Windows. macOS is opt-in: the code stays cross-platform, and its CI job runs only when enabled (see README, "Enabling macOS").
+6. **Platforms**: Windows. macOS is opt-in: the code stays cross-platform, and its CI job runs only when enabled (see README, "CI").

@@ -12,10 +12,15 @@ cargo test --workspace
 
 See [docs/PLAN.md](docs/PLAN.md) for the architecture and phases.
 
-## Enabling macOS
+## CI
 
-Windows is the only platform built and tested by default. The code stays cross-platform, and the CI workflow has a macOS job that is skipped unless you opt in in one of these ways:
+CI is manual while fakeman is in development: nothing runs on push or on pull requests. Run it from the Actions tab (Actions → CI → Run workflow), or with:
 
-- **Every run:** set the repository variable `ENABLE_MACOS` to `true` (Settings → Secrets and variables → Actions → Variables).
-- **One run:** start the CI workflow manually (Actions → CI → Run workflow) and tick the `macos` input.
-- **One pull request:** add the `macos` label to the PR.
+```sh
+gh workflow run ci.yml --ref <branch>
+gh workflow run ci.yml --ref <branch> -f macos=true   # also run macOS
+```
+
+Windows is the only platform checked by default. macOS uses the same steps and runs when you tick the `macos` input on a manual run, or on every run once the repository variable `ENABLE_MACOS` is `true` (Settings → Secrets and variables → Actions → Variables).
+
+To make CI automatic again, add the `push` (branches: `main`) and `pull_request` triggers back to `.github/workflows/ci.yml`.
