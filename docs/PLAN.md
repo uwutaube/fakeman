@@ -32,7 +32,7 @@ This document describes the target architecture and the phases to build it in. E
 | Concern | Choice | Why |
 | --- | --- | --- |
 | Language | Rust (stable, edition 2024) | Requirement. |
-| GUI | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) | Requirement. GPUI is not published as a stable crate, so it is pinned to a git revision. |
+| GUI | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) | Requirement. GPUI is not published as a stable crate; it comes in through gpui-kit as the `gpui-pre` snapshot that gpui-kit pins, so fakeman pins gpui-kit to a git revision and never depends on GPUI directly. |
 | Components | [gpui-kit](https://github.com/longbridge/gpui-kit) (formerly gpui-component) | Provides input, select/dropdown, table, tabs, resizable panels, sidebar, theming, and a code editor/viewer for JSON. It pins its own GPUI revision, so fakeman uses **the GPUI revision gpui-kit pins** rather than choosing one independently. |
 | Fake data | [`fake`](https://crates.io/crates/fake) 5.x | The established Rust port of the Faker idea, with names, addresses, internet, company, lorem, phone, dates, UUIDs, and locales. |
 | HTTP | `reqwest` (rustls, json) on a dedicated `tokio` runtime | Mature and async. GPUI has its own executor, so HTTP runs on a tokio runtime owned by the core and results are streamed back to the UI over a channel. |
