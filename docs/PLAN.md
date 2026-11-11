@@ -35,9 +35,12 @@ This document describes the target architecture and the phases to build it in. E
 | GUI | [GPUI](https://github.com/zed-industries/zed/tree/main/crates/gpui) | Requirement. GPUI is not published as a stable crate; it comes in through gpui-kit as the `gpui-pre` snapshot that gpui-kit pins, so fakeman pins gpui-kit to a git revision and never depends on GPUI directly. |
 | Components | [gpui-kit](https://github.com/longbridge/gpui-kit) (formerly gpui-component) | Used for interaction primitives: text input (and later the JSON editor/viewer), checkbox, radio, select/dropdown, resizable panels, the window title bar, and toasts. Layout and visual styling are fakeman's own, built from plain GPUI elements and a Postman-style design-tokens module (`fakeman-app/src/theme.rs`) that also restyles gpui-kit's primitives. gpui-kit pins its own GPUI revision, so fakeman uses **the GPUI revision gpui-kit pins** rather than choosing one independently. |
 | Fake data | [`fake`](https://crates.io/crates/fake) 5.x | The established Rust port of the Faker idea, with names, addresses, internet, company, lorem, phone, dates, UUIDs, and locales. |
-| HTTP | `reqwest` (rustls, json) on a dedicated `tokio` runtime | Mature and async. GPUI has its own executor, so HTTP runs on a tokio runtime owned by the core and results are streamed back to the UI over a channel. |
+| HTTP | `reqwest` 0.13 (rustls with the platform certificate verifier, http2, system proxy) on a dedicated `tokio` runtime, `tokio-util` for `CancellationToken` | Mature and async. GPUI has its own executor, so HTTP runs on a tokio runtime owned by the core and results are streamed back to the UI over a tokio `mpsc` channel, whose receiver works on any executor. Bodies are encoded by fakeman itself, so reqwest's `json`/`form` features are not needed. |
 | Database | `rusqlite` with the `bundled` feature, `rusqlite_migration` for schema versions | No system SQLite needed on Windows; migrations are plain SQL kept in the repo. |
-| JSON | `serde`, `serde_json` | Body building, parameter storage, pretty printing. |
+| JSON | `serde`, `serde_json` (with `preserve_order`) | Body building, parameter storage, pretty printing. `preserve_order` keeps body keys in field order. |
+| Form encoding | `form_urlencoded` | WHATWG-correct `key=value` escaping for form bodies; the same crate `url` uses. |
+| Randomness | `rand` 0.10 | Seedable `StdRng` in `GenContext`. Must match the `rand` version `fake` 5.x uses. |
+| Dates, UUIDs | `chrono`, `uuid` | ISO-8601 UTC values for the date generators and `datatype.uuid`. |
 | Paths | `directories` | Puts the database in the OS data directory (`%APPDATA%\\fakeman\\fakeman.db` on Windows, `~/Library/Application Support/fakeman/fakeman.db` on macOS). |
 | Errors / logs | `thiserror` in libraries, `anyhow` in the app, `tracing` | Standard. |
 | Tests | `cargo test`, `wiremock` for HTTP, in-memory SQLite | Core and storage are testable without opening a window. |
@@ -144,12 +147,18 @@ The body is then encoded by `encode_body(&Value, BodyFormat)` according to the e
 
 A user-defined `Content-Type` header overrides the default, which keeps an escape hatch for APIs that are picky about it. `content_type(&[Header], BodyFormat)` picks the first enabled, non-empty `Content-Type` header (case-insensitive) and otherwise the format's default.
 
-The runner executes a `RunRequest` (a snapshot of the endpoint at the moment Send is pressed, so edits during a run do not affect it) on the tokio runtime:
+The runner (`fakeman_core::runner`) executes a `RunRequest`, a snapshot of the endpoint's URL, body format, headers, fields and run settings taken when Send is pressed (`RunRequest::from(&Endpoint)`), so edits during a run do not affect it.
 
-1. For `i in 1..=count`: build a new body, send it, record status, latency, headers, body (truncated past a size limit), or the error.
-2. Emit a `RunEvent` after each request: `Started { total }`, `RequestFinished { index, payload, outcome }`, `Finished { summary }`, `Cancelled`.
-3. Between requests, wait `delay_ms` with a cancellable sleep.
-4. A `CancellationToken` stops the batch between requests and aborts the in-flight one.
+A `Runner` owns a one-worker tokio runtime and a `reqwest` client with a 10 s connect timeout and a 30 s total timeout per request (`RunnerConfig`, which also sets the response size limit of 1 MiB). The app creates one `Runner` and keeps it for its lifetime.
+
+`Runner::run(RunRequest, CancellationToken) -> Result<RunEvents, RunError>` first checks the request: the URL must parse and be `http` or `https`, `check_names` must pass, every enabled field's generator must `validate`, and header names and values must be sendable. Any problem is a `RunError` and nothing is sent. Otherwise the batch runs in the background and the call returns at once with the receiving end of a tokio unbounded channel, which the UI can await on its own executor or drain with `try_recv`.
+
+1. One `GenContext` is created per run. For `i in 1..=count`: build a new body (`build_body`, then `encode_body`), and POST it with the enabled headers and the `Content-Type` from `content_type`. A user `Content-Type` header replaces the default rather than being sent twice.
+2. Events, in order: `Started { total }`, then `RequestFinished { index, payload, outcome }` per request (`index` counts from 1), then `Finished { summary }`, or `Cancelled` instead of the rest. The channel closes after the last event.
+3. `payload` holds the generated `body` value and the exact `encoded` text that was sent. `outcome` holds the `latency` (request start to last body byte) and either a `Response` (status, headers, body bytes up to the size limit, the full `size`, and a `truncated` flag) or a `RequestError` with a kind (`Body`, `Connect`, `Timeout`, `Other`) and a message that includes the whole error chain.
+4. Between requests, wait `delay_ms` with a cancellable sleep. There is no delay before the first request or after the last.
+5. Cancelling the `CancellationToken` stops the batch during a delay and drops (aborts) the request in flight; `Cancelled` is then the last event.
+6. `RunSummary` counts 2xx responses as succeeded and everything else as failed, with the average latency and the wall time of the run.
 
 A failed request (connection refused, timeout, non-2xx) is recorded and the batch continues; a "stop on first error" toggle can be added later.
 
@@ -268,7 +277,7 @@ Each phase lists its deliverable and how it is verified.
 
 - tokio runtime owned by core; `reqwest` client with sensible timeouts.
 - Runner from 3.3: count, delay, cancellation, per-request events, error capture, response size limit.
-- A tiny debug CLI (`cargo run -p fakeman-core --example send`) that loads an endpoint from the database and runs it, to exercise the runner before the UI exists.
+- A tiny debug CLI (`cargo run -p fakeman-core --example send -- <endpoint.json>`) that loads an endpoint from a JSON file (a serialised `Endpoint`; `crates/fakeman-core/examples/endpoint.json` is a sample) and prints every run event, to exercise the runner before the UI exists. It reads a file rather than the database so that the core stays independent of the store.
 
 **Done when** `wiremock` tests show that N requests arrive with N distinct generated bodies in both formats with the right `Content-Type`, that the delay is respected (within tolerance), that cancel stops the batch, and that network errors and non-2xx responses are reported without aborting the batch.
 
