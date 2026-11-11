@@ -50,7 +50,6 @@ pub mod dim {
     pub const REQUEST_LINE_HEIGHT: Pixels = px(36.);
     pub const ROW_HEIGHT: Pixels = px(32.);
     pub const TREE_ROW_HEIGHT: Pixels = px(28.);
-    pub const TREE_INDENT: Pixels = px(14.);
     pub const STATUS_BAR_HEIGHT: Pixels = px(26.);
     pub const TAB_MAX_WIDTH: Pixels = px(220.);
     pub const METHOD_SELECT_WIDTH: Pixels = px(108.);

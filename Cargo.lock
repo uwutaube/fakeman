@@ -1551,7 +1551,12 @@ dependencies = [
 name = "fakeman-app"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
+ "fakeman-core",
+ "fakeman-store",
  "gpui-kit",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]
